@@ -1,6 +1,6 @@
 //! Shared Parquet output helpers.
 
-use arrow::datatypes::SchemaRef;
+use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::record_batch::RecordBatchReader;
 use futures::StreamExt;
 use log::debug;
@@ -18,6 +18,24 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::progress::ProgressHandle;
 use crate::tpch_cli::statistics::WriteStatistics;
+
+fn parquet_metadata_schema(schema: &SchemaRef) -> SchemaRef {
+    let fields = schema
+        .fields()
+        .iter()
+        .map(|field| {
+            let data_type = match field.data_type() {
+                DataType::Utf8View => DataType::Utf8,
+                data_type => data_type.clone(),
+            };
+            Arc::new(
+                Field::new(field.name(), data_type, field.is_nullable())
+                    .with_metadata(field.metadata().clone()),
+            )
+        })
+        .collect::<Vec<_>>();
+    Arc::new(Schema::new_with_metadata(fields, schema.metadata().clone()))
+}
 
 pub trait IntoSize {
     /// Convert the object into a size
@@ -133,10 +151,9 @@ where
         builder = apply_column_encodings(builder, &parquet_schema, encodings)?;
     }
     let mut writer_properties = builder.build();
-    // Embed the Arrow schema in the Parquet metadata (as ArrowWriter does) so
-    // readers recover Arrow types with no exact Parquet equivalent (e.g. the
-    // Time32(seconds) column in the TPC-DS dbgen_version table)
-    add_encoded_arrow_schema_to_metadata(&schema, &mut writer_properties);
+    // Preserve Arrow-only logical types while exposing view-backed strings as
+    // standard UTF-8 for readers that do not support Arrow's Utf8View type.
+    add_encoded_arrow_schema_to_metadata(&parquet_metadata_schema(&schema), &mut writer_properties);
     let writer_properties = Arc::new(writer_properties);
 
     // create a stream that computes the data for each row group
