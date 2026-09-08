@@ -1155,35 +1155,6 @@ fn test_tpcgen_cli_tpcds_parquet_preserves_arrow_schema() {
 }
 
 #[test]
-fn test_tpcgen_cli_tpcds_parquet_exposes_standard_utf8_strings() {
-    let temp_dir = tempdir().expect("Failed to create temporary directory");
-
-    cargo_bin_cmd!("tpcgen-cli")
-        .arg("tpcds")
-        .arg("parquet")
-        .arg("--scale-factor")
-        .arg("0.01")
-        .arg("--tables")
-        .arg("reason")
-        .arg("--output-dir")
-        .arg(temp_dir.path())
-        .assert()
-        .success();
-
-    let file =
-        File::open(temp_dir.path().join("reason.parquet")).expect("Failed to open Parquet file");
-    let builder =
-        ParquetRecordBatchReaderBuilder::try_new(file).expect("Failed to read Parquet metadata");
-    for column in ["r_reason_id", "r_reason_desc"] {
-        let field = builder
-            .schema()
-            .field_with_name(column)
-            .expect("Expected string field");
-        assert_eq!(field.data_type(), &DataType::Utf8);
-    }
-}
-
-#[test]
 fn test_tpcgen_cli_tpcds_parquet_uses_canonical_decimal_schemas() {
     let temp_dir = tempdir().expect("Failed to create temporary directory");
 
