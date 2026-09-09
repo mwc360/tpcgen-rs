@@ -45,11 +45,12 @@ impl TpcdsGenerationPlan {
         let range_len = (range_end - range_start + 1).max(0);
 
         let estimated_bytes =
-            (range_len as f64 * estimated_bytes_per_source_row(table)).ceil() as i64;
-        let num_row_groups = (estimated_bytes / row_group_bytes.max(1) as i64 + 1)
-            .min(MAX_ROW_GROUPS)
-            .min(range_len)
-            .max(1);
+            (range_len as f64 * estimated_bytes_per_source_row(table)).ceil() as u64;
+        let num_row_groups = estimated_bytes
+            .div_ceil(row_group_bytes.max(1) as u64)
+            .min(MAX_ROW_GROUPS as u64)
+            .min(range_len as u64)
+            .max(1) as i64;
         // ceiling division so the last row group is the one that comes up short
         let rows_per_group = ((range_len + num_row_groups - 1) / num_row_groups).max(1);
 
@@ -178,6 +179,22 @@ mod tests {
         // Rounding 3.45 bytes/source row to an integer would produce 9 or 12 groups.
         assert_eq!(plan.row_group_count(), 11);
         assert_covers(&plan, Scaling::new(100.0).get_row_count(Table::Inventory));
+    }
+
+    #[test]
+    fn exact_target_multiples_do_not_add_a_row_group() {
+        for (rows, expected) in [(100, 1), (200, 2), (201, 3)] {
+            let plan = TpcdsGenerationPlan::new_for_range(Table::Inventory, 345, 1..=rows);
+            assert_eq!(plan.row_group_count(), expected);
+            assert_covers(&plan, rows);
+        }
+    }
+
+    #[test]
+    fn maximum_target_keeps_one_row_group() {
+        let plan = plan(Table::StoreSales, 1.0, usize::MAX);
+        assert_eq!(plan.row_group_count(), 1);
+        assert_covers(&plan, 240_000);
     }
 
     #[test]
